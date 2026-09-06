@@ -333,6 +333,34 @@ footer .end{margin-left:auto}
 .field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--accent)}
 .field .hint{font-size:11px;color:var(--muted);font-weight:300}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+/* 버전 배지 · 버전 목록 팝업 */
+.vbadge{
+  position:absolute;right:11px;top:11px;z-index:2;font-family:var(--mono);
+  font-size:9.5px;letter-spacing:.06em;color:var(--ink);
+  background:rgba(0,0,0,.62);border:1px solid var(--line-2);
+  border-radius:999px;padding:4px 9px
+}
+.titlebtn{text-align:left;font:inherit;color:inherit}
+.titlebtn:hover{color:var(--accent)}
+.vsheet{width:min(460px,100%)}
+.veyebrow{margin:0 0 8px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.vsheet h2{margin:0 0 22px}
+.vlist{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.vlist li{border-bottom:1px solid var(--line)}
+.vlist a,.vlist .off{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:15px 2px;font-size:16px;transition:.16s
+}
+.vlist a:hover{padding-left:10px;padding-right:10px;background:var(--surface-2)}
+.vlist em{font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.vlist a:hover em{color:var(--accent)}
+.vlist .off{color:var(--muted)}
+
+.linkrow{display:flex;gap:8px;margin-bottom:8px}
+.linkrow .lk-label{flex:0 0 128px}
+.linkrow .lk-url{flex:1;min-width:0}
+.linkrow .rm{flex:none;padding:8px 12px;font-size:12px}
+
 .imgrow{display:flex;align-items:center;gap:8px}
 .imgrow input{flex:1;min-width:0}
 .imgrow .btn{flex:none;padding:8px 13px;font-size:12px}
@@ -932,6 +960,10 @@ function normalize(raw){
     desc: String(raw.desc || ""),
     url: String(raw.url || ""),
     tags: Array.isArray(raw.tags) ? raw.tags.map(String) : [],
+    links: Array.isArray(raw.links)
+      ? raw.links.filter(function(l){ return l && l.url; })
+                 .map(function(l){ return { label: String(l.label || "버전"), url: String(l.url) }; })
+      : [],
     status: STATUS[raw.status] ? raw.status : "live",
     when: String(raw.when || ""),
     thumb: String(raw.thumb || ""),
@@ -1351,24 +1383,33 @@ function render(){
 
 function cardHTML(it){
   var u = safeUrl(it.url);
+  var nv = it.links.length;            /* 버전이 여러 개면 눌렀을 때 목록이 떠요 */
   var thumbUrl = isImgSrc(it.thumb) ? it.thumb : safeUrl(it.thumb);
   var glyph = (it.thumb && !thumbUrl && it.thumb.length <= 2) ? it.thumb : it.title.slice(0,1);
   var inner =
     '<span class="pe">' + esc(it.category) + "</span>" +
     (thumbUrl ? '<img src="' + esc(thumbUrl) + '" alt="">'
               : '<span class="pg">' + esc(glyph) + "</span>") +
-    (u ? '<span class="go">↗</span>' : "");
-  var thumb = u
-    ? '<a class="thumb" style="background:' + tintFor(it.category) + '" href="' + esc(u) + '" target="_blank" rel="noopener" aria-label="' + esc(it.title) + ' 열기">' + inner + "</a>"
-    : '<button class="thumb nolink" style="background:' + tintFor(it.category) + '" data-edit="' + esc(it.id) + '" aria-label="' + esc(it.title) + ' 편집">' + inner + "</button>";
+    (nv ? '<span class="vbadge">' + nv + " 버전</span>" : "") +
+    (u || nv ? '<span class="go">' + (nv ? "⌄" : "↗") + "</span>" : "");
+  var bg = ' style="background:' + tintFor(it.category) + '"';
+  var thumb = nv
+    ? '<button class="thumb"' + bg + ' data-versions="' + esc(it.id) + '" aria-label="' + esc(it.title) + ' 버전 고르기">' + inner + "</button>"
+    : u
+      ? '<a class="thumb"' + bg + ' href="' + esc(u) + '" target="_blank" rel="noopener" aria-label="' + esc(it.title) + ' 열기">' + inner + "</a>"
+      : '<button class="thumb nolink"' + bg + ' data-edit="' + esc(it.id) + '" aria-label="' + esc(it.title) + ' 편집">' + inner + "</button>";
 
   var chips = it.tags.slice(0,3).map(function(t){
     return '<li><button class="chip" data-tag="' + esc(t) + '">' + esc(t) + "</button></li>";
   }).join("");
 
+  var head = nv ? '<button class="titlebtn" data-versions="' + esc(it.id) + '">' + esc(it.title) + "</button>"
+           : u  ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>"
+                : esc(it.title);
+
   return '<article class="card">' + thumb +
     (chips ? '<ul class="chips">' + chips + "</ul>" : "") +
-    "<h3>" + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>" : esc(it.title)) + "</h3>" +
+    "<h3>" + head + "</h3>" +
     (it.desc ? '<p class="desc">' + esc(it.desc) + "</p>" : "") +
     '<div class="card-foot"><span class="status ' + it.status + '">' + STATUS[it.status] +
       (it.when ? "  ·  " + esc(it.when) : "") + "</span>" +
@@ -1376,15 +1417,45 @@ function cardHTML(it){
     "</article>";
 }
 
+/* 버전 여러 개인 항목을 눌렀을 때 뜨는 목록 */
+function openVersions(id){
+  var it = items.find(function(x){ return x.id === id; });
+  if (!it) return;
+  var u = safeUrl(it.url);
+  var rows = (u ? [{ label: "기본", url: u }] : []).concat(it.links);
+  $("#modalRoot").innerHTML =
+  '<div class="scrim" id="scrim"><div class="sheet vsheet" role="dialog" aria-modal="true" aria-label="' + esc(it.title) + ' 버전">' +
+    '<p class="veyebrow">' + esc(it.category) + "</p>" +
+    "<h2>" + esc(it.title) + "</h2>" +
+    '<ul class="vlist">' + rows.map(function(l){
+      var lu = safeUrl(l.url);
+      return "<li>" + (lu
+        ? '<a href="' + esc(lu) + '" target="_blank" rel="noopener"><span>' + esc(l.label) + '</span><em>열기 ↗</em></a>'
+        : '<span class="off"><span>' + esc(l.label) + '</span><em>링크 없음</em></span>') + "</li>";
+    }).join("") + "</ul>" +
+  "</div></div>";
+  var scrim = $("#scrim");
+  function close(){ $("#modalRoot").innerHTML = ""; document.removeEventListener("keydown", k); }
+  function k(e){ if (e.key === "Escape") close(); }
+  document.addEventListener("keydown", k);
+  scrim.addEventListener("mousedown", function(e){ if (e.target === scrim) close(); });
+  scrim.addEventListener("click", function(e){ if (e.target.closest("a")) close(); });
+}
+
 function rowHTML(it, i){
   var u = safeUrl(it.url);
+  var nv = it.links.length;
+  var t = nv ? '<button class="titlebtn" data-versions="' + esc(it.id) + '">' + esc(it.title) + "</button>"
+        : u  ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>"
+             : esc(it.title);
   return '<div class="row">' +
     '<span class="num">' + String(i+1).padStart(2,"0") + "</span>" +
-    '<span class="t">' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>" : esc(it.title)) + "</span>" +
+    '<span class="t">' + t + "</span>" +
     '<span class="c">' + esc(it.category) + "</span>" +
     '<span class="g">' + it.tags.map(function(t){ return "#" + esc(t); }).join(" ") + "</span>" +
     '<span class="status ' + it.status + '">' + STATUS[it.status] + "</span>" +
-    '<span class="a">' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">열기 ↗</a> ' : "") +
+    '<span class="a">' + (nv ? '<button data-versions="' + esc(it.id) + '">버전 ' + nv + "</button> "
+                             : u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">열기 ↗</a> ' : "") +
       '<button data-edit="' + esc(it.id) + '">EDIT</button></span>' +
     "</div>";
 }
@@ -1440,6 +1511,10 @@ function openEditor(id){
     "</div>" +
     '<div class="field" id="newCatWrap" hidden><label for="f-newcat">새 카테고리 이름</label><input id="f-newcat" placeholder="예: 인스타 템플릿"></div>' +
     '<div class="field"><label for="f-url">링크</label><input id="f-url" value="' + esc(it.url) + '" placeholder="seoihyeon.github.io/..."></div>' +
+    '<div class="field" id="linksWrap" hidden><label>버전</label>' +
+      '<div id="f-links"></div>' +
+      '<button type="button" class="btn" id="f-linkAdd" style="align-self:flex-start">＋ 버전 추가</button>' +
+      '<span class="hint">듀오링고 일본어·영어·중국어처럼 갈래가 여러 개면 여기에 넣어요. 하나라도 있으면 카드를 눌렀을 때 목록 창이 떠요.</span></div>' +
     '<div class="field"><label for="f-desc">한 줄 설명</label><textarea id="f-desc" placeholder="무엇을 만드는 도구인지, 어떤 화면인지">' + esc(it.desc) + "</textarea></div>" +
     '<div class="field"><label for="f-tags">태그</label><input id="f-tags" value="' + esc(it.tags.join(", ")) + '" placeholder="목업, iOS, 캔버스렌더링"><span class="hint">쉼표로 구분해요. # 는 안 써도 돼요.</span></div>' +
     '<div class="field"><label for="f-when">연도</label><input id="f-when" value="' + esc(it.when) + '" placeholder="2026"></div>' +
@@ -1461,6 +1536,25 @@ function openEditor(id){
   var scrim = $("#scrim"), catSel = $("#f-cat");
   var thumbData = isImgSrc(it.thumb) ? it.thumb : "";
 
+  /* 버전 칸은 위젯 카테고리(Caveduck)일 때만 나와요 */
+  function linkRow(l){
+    var d = document.createElement("div");
+    d.className = "linkrow";
+    d.innerHTML = '<input class="lk-label" placeholder="일본어" value="' + esc(l ? l.label : "") + '">' +
+                  '<input class="lk-url" placeholder="주소" value="' + esc(l ? l.url : "") + '">' +
+                  '<button type="button" class="btn rm">×</button>';
+    d.querySelector(".rm").addEventListener("click", function(){ d.remove(); });
+    return d;
+  }
+  function syncLinks(){
+    var on = catSel.value === "Caveduck";
+    $("#linksWrap").hidden = !on;
+    return on;
+  }
+  it.links.forEach(function(l){ $("#f-links").appendChild(linkRow(l)); });
+  $("#f-linkAdd").addEventListener("click", function(){ $("#f-links").appendChild(linkRow(null)); });
+  syncLinks();
+
   function paintThumb(){
     var p = $("#f-thumbPrev"), v = thumbData || $("#f-thumb").value.trim();
     var src = isImgSrc(v) ? v : safeUrl(v);
@@ -1478,6 +1572,7 @@ function openEditor(id){
     var n = catSel.value === "__new";
     $("#newCatWrap").hidden = !n;
     if (n) $("#f-newcat").focus();
+    syncLinks();
   });
   $("#f-title").focus();
 
@@ -1499,7 +1594,15 @@ function openEditor(id){
     var title = $("#f-title").value.trim();
     if (!title){ $("#f-title").focus(); toast("제목은 있어야 해요."); return; }
     var cat = catSel.value === "__new" ? ($("#f-newcat").value.trim() || "기타") : catSel.value;
+    var links = [];
+    if (cat === "Caveduck"){
+      Array.prototype.forEach.call($("#f-links").querySelectorAll(".linkrow"), function(r){
+        var url = r.querySelector(".lk-url").value.trim();
+        if (url) links.push({ label: r.querySelector(".lk-label").value.trim() || "버전", url: url });
+      });
+    }
     var next = normalize({
+      links: links,
       id: it.id, title: title, category: cat, status: $("#f-status").value,
       url: $("#f-url").value.trim(), desc: $("#f-desc").value.trim(),
       tags: $("#f-tags").value.split(/[,\n]/).map(function(t){ return t.trim().replace(/^#/, ""); }).filter(Boolean),
@@ -1607,6 +1710,9 @@ document.addEventListener("click", function(e){
     if (canEdit) openEditor(t.getAttribute("data-edit"));
     return;
   }
+
+  var v = e.target.closest("[data-versions]");
+  if (v){ e.preventDefault(); openVersions(v.getAttribute("data-versions")); return; }
 
   var tag = e.target.closest("[data-tag]");
   if (tag){
