@@ -992,6 +992,7 @@ function pickImage(maxW, budget, cb){
 var MODE = "local";
 var GH = null;
 var LS_GH = "won-archive-gh";
+var LS_MIRROR = "won-archive-mirror";
 var commitTimer = null, committing = false, dirty = false;
 
 function loadLocal(){
@@ -1068,7 +1069,8 @@ async function ghCommit(retry){
       var r0 = await fetch(ghUrl(GH) + "?ref=" + encodeURIComponent(GH.branch), { headers: ghHeaders(GH) });
       if (r0.ok){ var j0 = await r0.json(); GH.sha = j0.sha; }
     }
-    var payload = JSON.stringify({ site: site, items: items }, null, 1);
+    var snapshot = { savedAt: new Date().toISOString(), site: site, items: items };
+    var payload = JSON.stringify(snapshot, null, 1);
     var body = {
       message: "archive: " + items.length + " works",
       content: b64utf8(payload),
@@ -1080,6 +1082,10 @@ async function ghCommit(retry){
       var j = await r.json();
       GH.sha = j.content && j.content.sha;
       storeGh(GH);
+      /* 깃허브 Pages가 다시 배포되기까지 1분쯤 걸려서, 그사이 새로고침하면
+         예전 data.json이 내려와 방금 고친 게 사라진 것처럼 보여요.
+         그래서 마지막으로 커밋한 내용을 이 브라우저에도 같이 남겨둡니다. */
+      try { localStorage.setItem(LS_MIRROR, payload); } catch(e){}
       var t = new Date();
       setSync("저장됨 " + String(t.getHours()).padStart(2,"0") + ":" + String(t.getMinutes()).padStart(2,"0"));
     } else if ((r.status === 409 || r.status === 422) && !retry){
@@ -1223,6 +1229,15 @@ async function initStore(){
     if (res.ok) loaded = await res.json();
   } catch(e){}
 
+  /* 이 브라우저에 남겨둔 마지막 커밋본이 사이트 파일보다 새 거면 그쪽을 씁니다.
+     (커밋 직후 Pages 배포가 끝나기 전에 새로고침해도 내 편집이 안 사라지게) */
+  var mirror = null;
+  try { mirror = JSON.parse(localStorage.getItem(LS_MIRROR) || "null"); } catch(e){}
+  if (mirror && Array.isArray(mirror.items)){
+    if (!loaded || !loaded.savedAt || String(mirror.savedAt || "") > String(loaded.savedAt || "")) loaded = mirror;
+    else { try { localStorage.removeItem(LS_MIRROR); } catch(e){} }
+  }
+
   if (loaded && Array.isArray(loaded.items)){
     items = loaded.items.map(normalize);
     site = loaded.site || { cover: "" };
@@ -1336,11 +1351,12 @@ function render(){
 
 function cardHTML(it){
   var u = safeUrl(it.url);
-  var thumbUrl = safeUrl(it.thumb);
+  var thumbUrl = isImgSrc(it.thumb) ? it.thumb : safeUrl(it.thumb);
+  var glyph = (it.thumb && !thumbUrl && it.thumb.length <= 2) ? it.thumb : it.title.slice(0,1);
   var inner =
     '<span class="pe">' + esc(it.category) + "</span>" +
     (thumbUrl ? '<img src="' + esc(thumbUrl) + '" alt="">'
-              : '<span class="pg">' + esc(it.thumb || it.title.slice(0,1)) + "</span>") +
+              : '<span class="pg">' + esc(glyph) + "</span>") +
     (u ? '<span class="go">↗</span>' : "");
   var thumb = u
     ? '<a class="thumb" style="background:' + tintFor(it.category) + '" href="' + esc(u) + '" target="_blank" rel="noopener" aria-label="' + esc(it.title) + ' 열기">' + inner + "</a>"
